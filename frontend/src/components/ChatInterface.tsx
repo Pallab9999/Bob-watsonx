@@ -3,6 +3,13 @@ import { useLocation } from "react-router-dom";
 import { api } from "../services/api";
 import type { ChatMessage, OnboardingPlan } from "../types";
 
+function genId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -66,7 +73,7 @@ export default function ChatInterface() {
       if (!trimmed || loading) return;
 
       const userMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: genId(),
         role: "user",
         content: trimmed,
         timestamp: new Date().toISOString(),
@@ -80,7 +87,7 @@ export default function ChatInterface() {
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: genId(),
             role: "assistant",
             content: answer,
             timestamp: new Date().toISOString(),
@@ -91,7 +98,7 @@ export default function ChatInterface() {
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: genId(),
             role: "assistant",
             content: `⚠️ Error: ${msg}`,
             timestamp: new Date().toISOString(),

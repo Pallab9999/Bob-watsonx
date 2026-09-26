@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   Navigate,
+  useNavigate,
 } from "react-router-dom";
 
 // Developer B components
@@ -24,57 +25,55 @@ import PRPreparation from "./components/PRPreparation";
 // Temporary placeholders for Dev A screens so routing works independently
 // ---------------------------------------------------------------------------
 
-const PlaceholderLanding = () => (
-  <div style={pageStyle}>
-    <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 12px" }}>
-      Developer Onboarding Copilot
-    </h1>
-    <p style={{ color: "#57606a", marginBottom: 32 }}>
-      Transform unfamiliar repositories into interactive learning journeys.
-    </p>
-    <a href="/input" style={btnStyle}>
-      Start Onboarding →
-    </a>
-  </div>
-);
+const DEMO_STATE = {
+  repoId: "demo-repo",
+  repoData: {
+    languages: ["TypeScript", "Python"],
+    frameworks: ["React", "FastAPI"],
+    entry_points: ["src/index.ts", "main.py"],
+    test_frameworks: ["Jest", "pytest"],
+  },
+  userProfile: {
+    experience_level: "beginner" as const,
+    role: "fullstack" as const,
+    goal: "Understand the architecture and make my first contribution",
+  },
+};
 
-const PlaceholderInput = () => (
-  <div style={pageStyle}>
-    <h2 style={{ marginBottom: 8 }}>Enter a Repository</h2>
-    <p style={{ color: "#57606a", marginBottom: 24, fontSize: 14 }}>
-      (Repository input form — implemented by Developer A)
-    </p>
-    {/* Direct navigation to Analysis with demo data for testing */}
-    <a
-      href="/analyze"
-      style={btnStyle}
-      onClick={(e) => {
-        e.preventDefault();
-        window.history.pushState(
-          {
-            repoId: "demo-repo",
-            repoData: {
-              languages: ["TypeScript", "Python"],
-              frameworks: ["React", "FastAPI"],
-              entry_points: ["src/index.ts", "main.py"],
-              test_frameworks: ["Jest", "pytest"],
-            },
-            userProfile: {
-              experience_level: "beginner",
-              role: "fullstack",
-              goal: "Understand the architecture and make my first contribution",
-            },
-          },
-          "",
-          "/analyze"
-        );
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }}
-    >
-      Try Demo Repository →
-    </a>
-  </div>
-);
+const PlaceholderLanding = () => {
+  const navigate = useNavigate();
+  return (
+    <div style={pageStyle}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 12px" }}>
+        Developer Onboarding Copilot
+      </h1>
+      <p style={{ color: "#57606a", marginBottom: 32 }}>
+        Transform unfamiliar repositories into interactive learning journeys.
+      </p>
+      <button style={btnStyle} onClick={() => navigate("/input")}>
+        Start Onboarding →
+      </button>
+    </div>
+  );
+};
+
+const PlaceholderInput = () => {
+  const navigate = useNavigate();
+  return (
+    <div style={pageStyle}>
+      <h2 style={{ marginBottom: 8 }}>Enter a Repository</h2>
+      <p style={{ color: "#57606a", marginBottom: 24, fontSize: 14 }}>
+        (Repository input form — implemented by Developer A)
+      </p>
+      <button
+        style={btnStyle}
+        onClick={() => navigate("/analyze", { state: DEMO_STATE })}
+      >
+        Try Demo Repository →
+      </button>
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // App Router
@@ -141,9 +140,10 @@ const btnStyle: React.CSSProperties = {
   display: "inline-block",
   background: "#3b82d4",
   color: "#fff",
+  border: "none",
   borderRadius: 6,
   padding: "12px 28px",
   fontSize: 15,
   fontWeight: 600,
-  textDecoration: "none",
+  cursor: "pointer",
 };
