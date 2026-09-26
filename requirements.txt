@@ -1,0 +1,19 @@
+# MCP Server Dependencies
+mcp>=1.0.0
+pydantic>=2.0.0
+httpx>=0.24.0
+uvicorn>=0.23.0
+fastapi>=0.100.0
+
+# Testing Dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Development Dependencies
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.4.0
+
+# watsonx Orchestrate SDK
+ibm-watsonx-orchestrate>=1.0.0
