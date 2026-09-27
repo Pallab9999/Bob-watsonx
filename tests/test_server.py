@@ -154,9 +154,9 @@ class TestCORSHeaders:
     
     def test_cors_headers_present(self, client):
         """Test CORS headers are present in response"""
-        response = client.get("/")
+        response = client.get("/", headers={"Origin": "http://localhost:3000"})
         assert "access-control-allow-origin" in response.headers
-        assert response.headers["access-control-allow-origin"] == "*"
+        assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 class TestErrorHandling:

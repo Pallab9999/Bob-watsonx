@@ -5,6 +5,7 @@ pydantic>=2.0.0
 httpx>=0.24.0
 uvicorn>=0.23.0
 fastapi>=0.100.0
+ibm-watsonx-ai>=1.1.0
 
 # Testing Dependencies
 pytest>=7.4.0
@@ -16,5 +17,5 @@ black>=23.0.0
 flake8>=6.0.0
 mypy>=1.4.0
 
-# watsonx Orchestrate SDK
-ibm-watsonx-orchestrate>=1.0.0
+# The watsonx Orchestrate ADK is developer tooling. Install it separately
+# through the ADK/uvx workflow described in watsonx-orchestrate/README.md.

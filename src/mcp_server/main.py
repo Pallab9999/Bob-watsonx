@@ -5,6 +5,7 @@ Main MCP Server implementation — Developer Onboarding Copilot
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Load .env from the repo root (two levels up from this file) before anything
@@ -18,11 +19,13 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.routing import Mount
 import uvicorn
 
 from .config import config
 from .tools import get_all_tools, execute_tool, TOOLS_REGISTRY
 from .ai.provider import ai_provider
+from .mcp_transport import streamable_http_app, watsonx_mcp
 from .onboarding.plan_generator import (
     generate_plan,
     get_plan,
@@ -47,11 +50,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# FastAPI owns the mounted MCP server's lifespan.
+_streamable_mcp_app = streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with watsonx_mcp.session_manager.run():
+        yield
+
+
 # FastAPI app
 app = FastAPI(
     title="MCP Server for watsonx Orchestrate",
     description="Model Context Protocol server with tools for watsonx Orchestrate integration",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -205,6 +219,11 @@ async def mcp_call_tool(request: Dict[str, Any]):
             }
         ]
     }
+
+
+# Streamable HTTP endpoint for MCP clients such as watsonx Orchestrate.
+# Existing /mcp/* compatibility routes above are intentionally preserved.
+app.router.routes.append(Mount("/mcp", app=_streamable_mcp_app))
 
 
 def main():

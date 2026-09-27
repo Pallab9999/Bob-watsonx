@@ -76,6 +76,9 @@ python -m mcp_server.main
 # → API docs at http://localhost:8000/docs
 ```
 
+For native watsonx.ai inference and watsonx Orchestrate ADK setup, see
+[watsonx-orchestrate/README.md](watsonx-orchestrate/README.md).
+
 ### Frontend
 
 ```bash
@@ -109,9 +112,9 @@ Full interactive docs: `http://localhost:8000/docs`
 
 ## 🤖 IBM Bob & watsonx Integration
 
-- The `AIProvider` class in [`src/mcp_server/ai/provider.py`](src/mcp_server/ai/provider.py) is vendor-agnostic
-- Set `LLM_BASE_URL` to your **IBM watsonx** endpoint to route all AI calls through watsonx
-- The server exposes standard MCP protocol endpoints (`/mcp/initialize`, `/mcp/tools/list`, `/mcp/tools/call`) for integration with **watsonx Orchestrate**
+- The `AIProvider` class in [`src/mcp_server/ai/provider.py`](src/mcp_server/ai/provider.py) supports OpenAI-compatible services and native **watsonx.ai** through `LLM_PROVIDER=watsonx`
+- Native watsonx.ai inference uses `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_URL`, and `WATSONX_MODEL`
+- The server exposes a standards-compliant Streamable HTTP MCP endpoint at `/mcp/` for integration with **watsonx Orchestrate**, alongside its legacy `/mcp/*` compatibility routes
 
 ---
 

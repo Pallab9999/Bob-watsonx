@@ -22,6 +22,7 @@ wheels/
 
 # Virtual Environment
 venv/
+.venv/
 env/
 ENV/
 
@@ -38,9 +39,10 @@ ENV/
 htmlcov/
 .tox/
 
-# Environment variables
-.env
-.env.local
+# Secrets & Keys
+apikey.json
+*.key
+
 
 # Logs
 *.log

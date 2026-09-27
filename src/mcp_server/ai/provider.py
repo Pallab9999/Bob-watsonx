@@ -28,9 +28,11 @@ and the provider appends /chat/completions as normal.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+from functools import partial
 from typing import Any, Dict, Optional
 
 import httpx
@@ -42,6 +44,7 @@ logger = logging.getLogger(__name__)
 # available to contributions.py and any other callers.
 # ---------------------------------------------------------------------------
 
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai_compatible").lower()
 LLM_API_KEY: str | None = os.getenv("LLM_API_KEY")
 LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
@@ -114,6 +117,67 @@ async def _get_iam_token() -> str:
 # Internal helper
 # ---------------------------------------------------------------------------
 
+def _watsonx_chat_completion(
+    system_prompt: str,
+    user_message: str,
+    *,
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool,
+) -> str:
+    """Run a native watsonx.ai chat completion through the IBM SDK."""
+    api_key = os.getenv("WATSONX_API_KEY")
+    project_id = os.getenv("WATSONX_PROJECT_ID")
+    url = os.getenv("WATSONX_URL")
+    model_id = os.getenv("WATSONX_MODEL", "ibm/granite-3-3-8b-instruct")
+
+    missing = [
+        name
+        for name, value in {
+            "WATSONX_API_KEY": api_key,
+            "WATSONX_PROJECT_ID": project_id,
+            "WATSONX_URL": url,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Native watsonx provider requires " + ", ".join(missing) + "."
+        )
+
+    try:
+        from ibm_watsonx_ai import APIClient, Credentials
+        from ibm_watsonx_ai.foundation_models import ModelInference
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install ibm-watsonx-ai to use LLM_PROVIDER=watsonx."
+        ) from exc
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    if json_mode:
+        messages[0]["content"] += "\nReturn only valid JSON."
+
+    credentials = Credentials(url=url, api_key=api_key)
+    client = APIClient(credentials)
+    model = ModelInference(
+        model_id=model_id,
+        api_client=client,
+        project_id=project_id,
+        params={
+            "temperature": temperature,
+            "max_completion_tokens": max_tokens,
+        },
+    )
+    response = model.chat(messages=messages)
+    try:
+        return response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"Unexpected watsonx response structure: {response}") from exc
+
+
 async def _chat_completion(
     system_prompt: str,
     user_message: str,
@@ -131,6 +195,20 @@ async def _chat_completion(
     Returns the assistant message content as a raw string.
     Raises RuntimeError on HTTP or parsing failures.
     """
+    if LLM_PROVIDER == "watsonx":
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            partial(
+                _watsonx_chat_completion,
+                system_prompt,
+                user_message,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                json_mode=json_mode,
+            ),
+        )
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
@@ -142,23 +220,15 @@ async def _chat_completion(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    return await _openai_chat(
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        json_mode=json_mode,
-    )
 
+    if LLM_PROVIDER != "openai_compatible" and LLM_PROVIDER != "watsonx":
+        raise RuntimeError(
+            "LLM_PROVIDER must be 'openai_compatible' or 'watsonx'."
+        )
 
-async def _openai_chat(
-    messages: list,
-    *,
-    temperature: float,
-    max_tokens: int,
-    json_mode: bool,
-) -> str:
-    """Call a standard OpenAI-compatible /chat/completions endpoint."""
-    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    headers: Dict[str, str] = {
+        "Content-Type": "application/json",
+    }
     if LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
 

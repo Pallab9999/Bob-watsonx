@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "wxo-docs": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy",
+        "--transport",
+        "streamablehttp",
+        "https://developer.watson-orchestrate.ibm.com/mcp"
+      ],
+      "alwaysAllow": [
+        "SearchIbmWatsonxOrchestrateAdk"
+      ],
+      "disabled": false
+    }
+  }
+}
