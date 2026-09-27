@@ -5,6 +5,15 @@ Main MCP Server implementation — Developer Onboarding Copilot
 import asyncio
 import json
 import logging
+from pathlib import Path
+
+# Load .env from the repo root (two levels up from this file) before anything
+# reads os.getenv, so developers only need to fill in .env once.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+except ImportError:
+    pass  # python-dotenv not installed — fall back to plain env vars
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
