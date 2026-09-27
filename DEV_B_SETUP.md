@@ -54,7 +54,7 @@ Interactive API docs (Swagger UI): **http://localhost:8000/docs**
 
 ```bash
 cd frontend
-npm install
+npm install --legacy-peer-deps
 npm start
 ```
 
