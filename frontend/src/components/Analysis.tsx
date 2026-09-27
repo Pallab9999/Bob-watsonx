@@ -3,12 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "../services/api";
 import type { UserProfile, OnboardingPlan } from "../types";
 
-function genId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+
 
 // ---------------------------------------------------------------------------
 // Types
