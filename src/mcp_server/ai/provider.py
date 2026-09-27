@@ -3,6 +3,27 @@ AI Provider Interface for the Developer Onboarding Copilot.
 
 Abstracts underlying LLM calls so the rest of the application is
 decoupled from any specific vendor (OpenAI-compatible, IBM watsonx, etc.).
+
+IBM watsonx notes
+-----------------
+The watsonx chat API lives at:
+  POST  <host>/ml/v1/text/chat?version=2023-05-29
+and requires:
+  - Authorization: Bearer <IAM_TOKEN>   (exchanged from the raw API key)
+  - project_id in the JSON body
+
+Set the following environment variables:
+  LLM_API_KEY    = your IBM Cloud API key
+  LLM_BASE_URL   = https://us-south.ml.cloud.ibm.com   (host only, no path)
+  LLM_MODEL      = ibm/granite-3-8b-instruct
+  WATSONX_PROJECT_ID = your watsonx project ID
+
+The provider detects watsonx automatically when LLM_BASE_URL contains
+"ml.cloud.ibm.com" or when WATSONX_PROJECT_ID is set.
+
+For a standard OpenAI-compatible endpoint just set:
+  LLM_BASE_URL   = https://api.openai.com/v1
+and the provider appends /chat/completions as normal.
 """
 
 from __future__ import annotations
@@ -10,20 +31,83 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — read at import time so the module-level constants are
+# available to contributions.py and any other callers.
 # ---------------------------------------------------------------------------
 
 LLM_API_KEY: str | None = os.getenv("LLM_API_KEY")
 LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "60"))
+WATSONX_PROJECT_ID: str | None = os.getenv("WATSONX_PROJECT_ID")
+WATSONX_API_VERSION: str = os.getenv("WATSONX_API_VERSION", "2023-05-29")
+
+# IBM IAM token endpoint used to exchange an API key for a bearer token.
+_IAM_TOKEN_URL = "https://iam.cloud.ibm.com/identity/token"
+
+# Cached IAM bearer token (simple in-process cache; good enough for MVP).
+_iam_token_cache: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Watsonx detection
+# ---------------------------------------------------------------------------
+
+def _is_watsonx() -> bool:
+    """Return True when the configured endpoint is IBM watsonx."""
+    return (
+        "ml.cloud.ibm.com" in LLM_BASE_URL
+        or bool(WATSONX_PROJECT_ID)
+    )
+
+
+# ---------------------------------------------------------------------------
+# IBM IAM token exchange
+# ---------------------------------------------------------------------------
+
+async def _get_iam_token() -> str:
+    """
+    Exchange the IBM Cloud API key for a short-lived IAM bearer token.
+
+    The token is cached in-process for the lifetime of the server process.
+    In production, add expiry checking; for the hackathon MVP this is fine.
+    """
+    global _iam_token_cache
+    if _iam_token_cache:
+        return _iam_token_cache
+
+    if not LLM_API_KEY:
+        raise RuntimeError(
+            "LLM_API_KEY must be set to your IBM Cloud API key for watsonx"
+        )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.post(
+                _IAM_TOKEN_URL,
+                data={
+                    "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
+                    "apikey": LLM_API_KEY,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"IAM token exchange failed [{exc.response.status_code}]: {exc.response.text}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"IAM token exchange connection error: {exc}") from exc
+
+    _iam_token_cache = resp.json()["access_token"]
+    return _iam_token_cache
 
 
 # ---------------------------------------------------------------------------
@@ -41,21 +125,46 @@ async def _chat_completion(
     """
     Send a single-turn chat completion request to the configured LLM endpoint.
 
+    Automatically routes to the IBM watsonx native chat API when the base URL
+    is a watsonx host, otherwise uses the standard OpenAI-compatible path.
+
     Returns the assistant message content as a raw string.
     Raises RuntimeError on HTTP or parsing failures.
     """
-    headers: Dict[str, str] = {
-        "Content-Type": "application/json",
-    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    if _is_watsonx():
+        return await _watsonx_chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    return await _openai_chat(
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        json_mode=json_mode,
+    )
+
+
+async def _openai_chat(
+    messages: list,
+    *,
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool,
+) -> str:
+    """Call a standard OpenAI-compatible /chat/completions endpoint."""
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
     if LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
 
     payload: Dict[str, Any] = {
         "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
@@ -80,6 +189,74 @@ async def _chat_completion(
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
         raise RuntimeError(f"Unexpected LLM response structure: {data}") from exc
+
+
+async def _watsonx_chat(
+    messages: list,
+    *,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    """
+    Call the IBM watsonx native chat endpoint.
+
+    Endpoint: POST <host>/ml/v1/text/chat?version=<WATSONX_API_VERSION>
+    Auth:     Bearer <IAM token exchanged from the API key>
+    Body:     { model_id, project_id, messages, parameters }
+    """
+    if not WATSONX_PROJECT_ID:
+        raise RuntimeError(
+            "WATSONX_PROJECT_ID must be set to use the IBM watsonx endpoint. "
+            "Find it in your watsonx.ai project settings."
+        )
+
+    token = await _get_iam_token()
+
+    # Strip any path suffix — we need the bare host
+    base = LLM_BASE_URL.rstrip("/")
+    # If the user accidentally kept /openai or /ml/v1/... strip it back to host
+    for suffix in ("/ml/v1/openai", "/ml/v1", "/openai"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    url = f"{base}/ml/v1/text/chat"
+    params = {"version": WATSONX_API_VERSION}
+
+    payload: Dict[str, Any] = {
+        "model_id": LLM_MODEL,
+        "project_id": WATSONX_PROJECT_ID,
+        "messages": messages,
+        "parameters": {
+            "temperature": temperature,
+            "max_new_tokens": max_tokens,
+        },
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        try:
+            response = await client.post(url, headers=headers, params=params, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # IAM token may have expired — clear cache so next call re-exchanges
+            global _iam_token_cache
+            _iam_token_cache = None
+            raise RuntimeError(
+                f"watsonx request failed [{exc.response.status_code}]: {exc.response.text}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"watsonx connection error: {exc}") from exc
+
+    data = response.json()
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Unexpected watsonx response structure: {data}") from exc
 
 
 # ---------------------------------------------------------------------------
