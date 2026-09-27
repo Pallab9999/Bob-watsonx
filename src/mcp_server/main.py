@@ -11,7 +11,7 @@ from pathlib import Path
 # reads os.getenv, so developers only need to fill in .env once.
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 except ImportError:
     pass  # python-dotenv not installed — fall back to plain env vars
 from typing import Any, Dict, List, Optional
