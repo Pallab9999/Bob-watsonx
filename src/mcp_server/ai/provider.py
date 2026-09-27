@@ -219,6 +219,7 @@ async def _chat_completion(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            json_mode=json_mode,
         )
 
     if LLM_PROVIDER != "openai_compatible" and LLM_PROVIDER != "watsonx":
@@ -266,13 +267,14 @@ async def _watsonx_chat(
     *,
     temperature: float,
     max_tokens: int,
+    json_mode: bool = False,
 ) -> str:
     """
     Call the IBM watsonx native chat endpoint.
 
     Endpoint: POST <host>/ml/v1/text/chat?version=<WATSONX_API_VERSION>
     Auth:     Bearer <IAM token exchanged from the API key>
-    Body:     { model_id, project_id, messages, parameters }
+    Body:     { model_id, project_id, messages, temperature, max_tokens }
     """
     if not WATSONX_PROJECT_ID:
         raise RuntimeError(
@@ -297,11 +299,13 @@ async def _watsonx_chat(
         "model_id": LLM_MODEL,
         "project_id": WATSONX_PROJECT_ID,
         "messages": messages,
-        "parameters": {
-            "temperature": temperature,
-            "max_new_tokens": max_tokens,
-        },
+        # The chat API takes these at the top level; a "parameters" block is
+        # silently ignored and the model falls back to a 1024-token limit.
+        "temperature": temperature,
+        "max_tokens": max_tokens,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
 
     headers = {
         "Content-Type": "application/json",
@@ -327,6 +331,25 @@ async def _watsonx_chat(
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
         raise RuntimeError(f"Unexpected watsonx response structure: {data}") from exc
+
+
+def _parse_json(raw: str) -> Dict[str, Any]:
+    """
+    Parse a JSON object from an LLM reply.
+
+    Models without enforced JSON mode (e.g. Granite on watsonx) often wrap the
+    object in ```json fences or add prose around it, so fall back to the span
+    between the first "{" and the last "}". Raises json.JSONDecodeError if no
+    valid object can be recovered (e.g. the reply was truncated).
+    """
+    text = raw.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise
+        return json.loads(text[start : end + 1])
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +387,7 @@ class AIProvider:
             max_tokens=1500,
         )
         try:
-            return json.loads(raw)
+            return _parse_json(raw)
         except json.JSONDecodeError:
             logger.warning("LLM returned non-JSON for analyze_repository; wrapping.")
             return {"summary": raw, "architecture_notes": "", "key_modules": [], "entry_points": []}
@@ -394,14 +417,22 @@ class AIProvider:
             PLAN_GENERATION_SYSTEM,
             plan_generation_user(repo_data, user_profile),
             json_mode=True,
-            max_tokens=2048,
+            max_tokens=4096,
             temperature=0.5,
         )
         try:
-            return json.loads(raw)
+            return _parse_json(raw)
         except json.JSONDecodeError:
-            logger.warning("LLM returned non-JSON for generate_onboarding_plan.")
-            return {"days": [], "overview": raw, "estimated_hours": 0}
+            logger.warning(
+                "LLM returned non-JSON for generate_onboarding_plan (%d chars, "
+                "possibly truncated): %s", len(raw), raw[-200:],
+            )
+            return {
+                "days": [],
+                "overview": "The AI returned a plan that could not be parsed. "
+                "Please try generating it again.",
+                "estimated_hours": 0,
+            }
 
     # ------------------------------------------------------------------
     # Q&A chat
@@ -460,7 +491,7 @@ class AIProvider:
             temperature=0.6,
         )
         try:
-            return json.loads(raw)
+            return _parse_json(raw)
         except json.JSONDecodeError:
             return {"title": "Explore the module", "objective": raw, "hints": [], "acceptance_criteria": []}
 
@@ -493,7 +524,7 @@ class AIProvider:
             temperature=0.2,
         )
         try:
-            return json.loads(raw)
+            return _parse_json(raw)
         except json.JSONDecodeError:
             return {"passed": False, "score": 0, "feedback": raw, "suggestions": []}
 

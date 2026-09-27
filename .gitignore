@@ -57,3 +57,8 @@ Thumbs.db
 node_modules/
 frontend/build/
 frontend/.env.local
+
+# Local secrets
+.env
+.env.*
+!.env.example
